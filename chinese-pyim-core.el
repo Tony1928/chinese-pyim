@@ -379,9 +379,21 @@ pyim 内建的有三种选词框格式：
 注：这个选项只适用于 `pyim-page-tooltip' 取值为 'pos-tip 的时候。"
   :group 'chinese-pyim)
 
+(defcustom pyim-use-rime nil
+  "pyim 是否使用 rime 來获取詞条。"
+  :group 'chinese-pyim)
+
+(defcustom pyim-rime-command
+  ;; "cd '/home/feng/project/rime/librime/build/bin'; ./rime_console"
+  "/home/feng/project/rime/rime-tool/tools/rime.py"
+  "rime 的命令"
+  :group 'chinese-pyim)
+
 (defvar pyim-debug nil)
 (defvar pyim-title "灵通" "Chinese-pyim 在 mode-line 中显示的名称。")
 (defvar pyim-extra-dicts nil "与 `pyim-dicts' 类似, 用于和 elpa 格式的词库包集成。")
+(defvar pyim-rime-buffer "*pyim-rime*")
+(defvar pyim-rime-init-p nil)
 
 (defvar pyim-pinyin-shen-mu
   '("b" "p" "m" "f" "d" "t" "n" "l" "g" "k" "h"
@@ -1804,6 +1816,11 @@ Return the input string."
 
 ;; #+BEGIN_SRC emacs-lisp
 (defun pyim-handle-entered-code ()
+  (if pyim-use-rime
+      (funcall 'pyim-handle-entered-code:rime)
+    (funcall 'pyim-handle-entered-code:pyim)))
+
+(defun pyim-handle-entered-code:pyim ()
   (let ((scheme-name pyim-default-scheme)
         (str pyim-entered-code))
     (setq pyim-scode-list (pyim-code-split str scheme-name)
@@ -1830,6 +1847,31 @@ Return the input string."
       (pyim-dagger-refresh)
       (pyim-page-refresh))))
 
+(defun pyim-handle-entered-code:rime ()
+  (setq pyim-code-position 0)
+  (unless pyim-rime-init-p
+    (let ((process (get-buffer-process pyim-rime-buffer)))
+      (when process
+        (kill-process process))
+      (start-process-shell-command
+       "*pyim-rime-process*" pyim-rime-buffer pyim-rime-command))
+    (setq pyim-rime-init-p t))
+  (set-process-filter
+   (get-buffer-process pyim-rime-buffer)
+   (lambda (process output)
+     (let ((output (split-string
+                    (replace-regexp-in-string "\n" "" output)
+                    "[ ]+")))
+       (if (pyim-string-match-p "\\cc" (car output))
+           (setq pyim-current-choices
+                 `((,@output)))
+         (setq pyim-current-choices
+               `((,pyim-entered-code))))
+       (setq pyim-current-pos 1)
+       (pyim-dagger-refresh)
+       (pyim-page-refresh))))
+  (process-send-string (get-buffer-process pyim-rime-buffer)
+                       (concat pyim-entered-code "\n")))
 ;; #+END_SRC
 
 ;; ** 处理当前需要插入 buffer 的 dagger 字符串： `pyim-dagger-str'
